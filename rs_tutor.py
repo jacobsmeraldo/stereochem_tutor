@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import json
 import os
-import random
-import time
-from typing import Any, Dict, Iterable, List, Mapping
+from typing import Any, Dict, Iterable, Mapping
 
 MODEL_NAME = "gemini-3.8-flash"
-RETRYABLE_STATUS_CODES = {429, 503}
 
 def _chat_history_text(chat_history: Iterable[Mapping[str, str]]) -> str:
     lines = []
@@ -50,25 +47,19 @@ def _build_stereo_prompt(
         f"{json.dumps(evaluation, indent=2)}"
     )
 
-def _error_code(exc: BaseException) -> int | None:
-    for attr in ("code", "status_code", "status"):
-        value = getattr(exc, attr, None)
-        if value is not None:
-            try: return int(value)
-            except (TypeError, ValueError): return None
-    return None
-
-def get_stereo_tutor_response(
+def get_stereo_tutor_stream(
     chat_history: Iterable[Mapping[str, str]],
     problem_data: Mapping[str, Any],
     student_assignments: Mapping[str, str],
-) -> str:
+):
+    """Yields text chunks as they arrive from the API for real-time streaming."""
     from google import genai
-    from google.genai import errors, types
+    from google.genai import types
 
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        raise RuntimeError("Set GEMINI_API_KEY or GOOGLE_API_KEY before requesting tutor feedback.")
+        yield "Error: Set GEMINI_API_KEY before requesting tutor feedback."
+        return
 
     client = genai.Client(api_key=api_key)
 
@@ -77,33 +68,27 @@ You are a Socratic Coach for undergraduate Organic Chemistry stereochemistry.
 
 CORE TASK - R/S ASSIGNMENTS:
 - Help students assign R and S absolute configurations to chiral centers.
-- NEVER give away the answer key.
-- Guide them through: 1. Priority ranking. 2. Points of difference. 3. 3D orientation.
+- NEVER give away the answer key immediately.
+- Guide them methodically through: 1. Priority ranking (atomic number). 2. Points of difference. 3. 3D spatial orientation (is #4 in back?).
 - DO NOT mention Newman projections or Chair conformations. Keep the student entirely focused on R/S CIP rules.
-
-CRITICAL: You must be extremely concise. Limit every response to 2 short bullet points maximum.
+- Provide thorough, encouraging, and conversational step-by-step guidance. Break down your reasoning clearly.
 """.strip()
 
     prompt = _build_stereo_prompt(chat_history, problem_data, student_assignments)
     config = types.GenerateContentConfig(
         system_instruction=system_instruction,
         temperature=0.35,
-        max_output_tokens=200, 
+        max_output_tokens=800, 
     )
 
-    max_attempts = 5
-    base_delay = 1.0
-
-    for attempt in range(max_attempts):
-        try:
-            response = client.models.generate_content(
-                model=MODEL_NAME,
-                contents=prompt,
-                config=config,
-            )
-            return (response.text or "").strip() or "I could not generate feedback for this submission."
-        except errors.APIError as exc:
-            code = _error_code(exc)
-            if code not in RETRYABLE_STATUS_CODES or attempt == max_attempts - 1:
-                raise
-            time.sleep(base_delay * (2**attempt) + random.uniform(0, 0.5))
+    try:
+        response_stream = client.models.generate_content_stream(
+            model=MODEL_NAME,
+            contents=prompt,
+            config=config,
+        )
+        for chunk in response_stream:
+            if chunk.text:
+                yield chunk.text
+    except Exception as exc:
+        yield f"I encountered an error reaching the API: {exc}"
