@@ -6,7 +6,7 @@ import random
 import time
 from typing import Any, Dict, Iterable, List, Mapping
 
-MODEL_NAME = "gemini-2.5-flash-8b"
+MODEL_NAME = "gemini-1.5-flash-8b"
 RETRYABLE_STATUS_CODES = {429, 503}
 
 def _chat_history_text(chat_history: Iterable[Mapping[str, str]]) -> str:
