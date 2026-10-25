@@ -1,0 +1,5 @@
+streamlit
+rdkit
+google-genai
+py3Dmol
+pandas
