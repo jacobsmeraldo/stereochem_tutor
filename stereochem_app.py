@@ -172,7 +172,7 @@ def main() -> None:
     st.subheader("Tutor Feedback")
     render_chat()
 
-    follow_up = st.chat_input("Ask about CIP rules, Newman projections, or Chair conformations!")
+    follow_up = st.chat_input("Ask about CIP rules!")
     if follow_up:
         st.session_state.chat_history.append({"role": "user", "content": follow_up})
         with st.spinner("Thinking..."):
