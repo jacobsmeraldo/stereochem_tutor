@@ -11,7 +11,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem, Draw, rdCIPLabeler, rdDepictor
 
 from rs_data import StereoGenerator
-from rs_tutor import get_stereo_tutor_response
+from rs_tutor import get_stereo_tutor_stream
 
 st.set_page_config(page_title="R/S Stereocenter Drill", layout="wide")
 
@@ -37,7 +37,6 @@ def molecule_image(mol: Chem.Mol) -> BytesIO:
     return buffer
 
 def get_3d_mol_block(smiles: str) -> str:
-    """Generates a standard 3D geometry block for the interactive viewer."""
     mol = Chem.MolFromSmiles(smiles)
     mol = Chem.AddHs(mol)
     
@@ -107,7 +106,6 @@ def main() -> None:
                     view.addModel(mol_block, 'mol')
                     view.setStyle({'stick': {'radius': 0.15}, 'sphere': {'radius': 0.35}})
                     
-                    # Floating labels
                     for atom_idx in chiral_centers.keys():
                         view.addLabel(
                             f"C{atom_idx}", 
@@ -151,36 +149,40 @@ def main() -> None:
                 )
             submitted = st.form_submit_button("Check Stereocenters", use_container_width=True)
 
-        if submitted:
-            incomplete = [f"C{idx}" for idx, choice in assignments.items() if choice == "Select R/S"]
-            if incomplete:
-                st.warning(f"Please assign a configuration for: {', '.join(incomplete)}")
-            else:
-                summary = ", ".join(f"C{idx} -> {choice}" for idx, choice in assignments.items())
-                st.session_state.chat_history.append({"role": "user", "content": f"Submitted stereocenter assignments: {summary}."})
-
-                with st.spinner("Asking the Socratic tutor..."):
-                    try:
-                        feedback = get_stereo_tutor_response(st.session_state.chat_history, problem, assignments)
-                    except Exception as exc:
-                        feedback = f"I could not reach the tutor API: {exc}"
-
-                st.session_state.chat_history.append({"role": "assistant", "content": feedback})
-                st.rerun()
-
     st.divider()
     st.subheader("Tutor Feedback")
     render_chat()
 
-    follow_up = st.chat_input("Ask about CIP rules!")
+    # Handle form submission streaming
+    if submitted:
+        incomplete = [f"C{idx}" for idx, choice in assignments.items() if choice == "Select R/S"]
+        if incomplete:
+            st.warning(f"Please assign a configuration for: {', '.join(incomplete)}")
+        else:
+            summary = ", ".join(f"C{idx} -> {choice}" for idx, choice in assignments.items())
+            st.session_state.chat_history.append({"role": "user", "content": f"Submitted stereocenter assignments: {summary}."})
+            
+            with st.chat_message("user"):
+                st.markdown(f"Submitted stereocenter assignments: {summary}.")
+                
+            with st.chat_message("assistant"):
+                stream = get_stereo_tutor_stream(st.session_state.chat_history, problem, assignments)
+                feedback = st.write_stream(stream)
+                st.session_state.chat_history.append({"role": "assistant", "content": feedback})
+            st.rerun()
+
+    # Handle follow-up chat streaming
+    follow_up = st.chat_input("Ask about CIP rules, priority ranking, or points of difference!")
     if follow_up:
         st.session_state.chat_history.append({"role": "user", "content": follow_up})
-        with st.spinner("Thinking..."):
-            try:
-                feedback = get_stereo_tutor_response(st.session_state.chat_history, problem, {})
-            except Exception as exc:
-                feedback = f"I could not reach the tutor API: {exc}"
-        st.session_state.chat_history.append({"role": "assistant", "content": feedback})
+        
+        with st.chat_message("user"):
+            st.markdown(follow_up)
+            
+        with st.chat_message("assistant"):
+            stream = get_stereo_tutor_stream(st.session_state.chat_history, problem, {})
+            feedback = st.write_stream(stream)
+            st.session_state.chat_history.append({"role": "assistant", "content": feedback})
         st.rerun()
 
 if __name__ == "__main__":
